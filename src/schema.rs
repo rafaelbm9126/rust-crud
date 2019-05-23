@@ -1,10 +1,13 @@
 use mongodb::{
     oid::ObjectId,
     bson,
+    Bson,
     ordered::OrderedDocument,
+    Error,
 };
 
 use crate::mongo::Mongo;
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Person {
@@ -32,6 +35,7 @@ pub struct PersonInput {
     pub name: Option<String>,
 }
 
+
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Query;
 graphql_object!(Query: () |&self| {
@@ -44,21 +48,40 @@ graphql_object!(Query: () |&self| {
         let mut to_bson = bson::to_bson(&result).unwrap();
         let fr_bson = bson::from_bson::<Person>(to_bson).unwrap();
 
-
-
-        let resolvet = bson::to_bson(&input).unwrap().as_document().cloned();
+        let mut resolvet = bson::to_bson(&input).unwrap().as_document().cloned();
         let resolve = bson::to_bson(&input).unwrap().as_document().cloned();
 
         let find = OrderedDocument::new();
-        let u = resolve.unwrap().iter().filter(|i| -> bool {
+        let step_1 = resolve.unwrap();
+        let step_2 = step_1.iter();
+        let mut step_3 = step_2.filter(|i| -> bool {
             let (item, value) = i;
             (value.as_null() == None)
         });
         
-        println!("{:#?}", u);
-        // println!("{:#?} {:?}", collection.find_one(resolve, None).unwrap().unwrap(), resolvet.into_iter());
+        let mut docky = OrderedDocument::new();
 
-        Some (fr_bson)
+        loop {
+            let item = step_3.next();
+            if item == None {
+                break;
+            }
+            let (name, value): (&String, &Bson) = item.unwrap();
+            docky.insert_bson(name.to_string(), value.clone());
+        }
+
+        let resultt = collection.find_one(Some(docky), None);
+
+        let trans = match resultt {
+            Ok(obj) => obj.or(Some( OrderedDocument::new() )),
+            Error => Some( OrderedDocument::new() ),
+        };
+
+        let tranformation_OrDoc_to_Bson = Bson::Document(trans.unwrap());
+
+        let que = bson::from_bson::<Person>(tranformation_OrDoc_to_Bson);
+
+        que.ok()
     }
 });
  
