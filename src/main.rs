@@ -3,7 +3,6 @@ extern crate mount;
 extern crate logger;
 #[macro_use]
 extern crate juniper;
-#[macro_use]
 extern crate juniper_iron;
 #[macro_use]
 extern crate juniper_codegen;
@@ -19,6 +18,8 @@ mod server;
 use server::Server;
 
 mod schema;
+
+mod models;
 
 fn main() {
     Server::graph_start();

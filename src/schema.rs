@@ -1,102 +1,102 @@
 use mongodb::{
-    oid::ObjectId,
     bson,
+    oid::ObjectId,
     Bson,
-    ordered::OrderedDocument,
-    Error,
 };
 
 use crate::mongo::Mongo;
 
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Person {
-    #[serde(rename="_id")]
-    pub id: Option<ObjectId>,
-    pub name: String,
-    pub age: i32,
-}
-graphql_object!(Person: () |&self| {
-    field id() -> String {
-        if let Some(ref id) = self.id { id.to_hex() } else { "".into() }
-    }
-    field name() -> String {
-        self.name.to_string()
-    }
-    field age() -> i32 {
-        self.age
-    }
-});
- 
- 
-#[derive(Serialize, Deserialize, Debug, GraphQLInputObject)]
-pub struct PersonInput {
-    pub id: Option<String>,
-    pub name: Option<String>,
-}
-
+use crate::models::persons::{
+    Person,
+    PersonQueryInput,
+    PersonAgeQueryRange,
+    PersonMutateInput,
+    PersonMutateResponse,
+};
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Query;
 graphql_object!(Query: () |&self| {
-    field foo() -> String {
-        "Bar".to_owned()
-    }
-    field person(input: PersonInput) -> Option<Person> {
+    field person(input: PersonQueryInput) -> Option<Person> {
         let collection = Mongo::person_collection();
-        let result = collection.find_one(None, None).unwrap().unwrap();
-        let mut to_bson = bson::to_bson(&result).unwrap();
-        let fr_bson = bson::from_bson::<Person>(to_bson).unwrap();
-
-        let mut resolvet = bson::to_bson(&input).unwrap().as_document().cloned();
-        let resolve = bson::to_bson(&input).unwrap().as_document().cloned();
-
-        let find = OrderedDocument::new();
-        let step_1 = resolve.unwrap();
-        let step_2 = step_1.iter();
-        let mut step_3 = step_2.filter(|i| -> bool {
-            let (item, value) = i;
-            (value.as_null() == None)
-        });
-        
-        let mut docky = OrderedDocument::new();
-
-        loop {
-            let item = step_3.next();
-            if item == None {
-                break;
-            }
-            let (name, value): (&String, &Bson) = item.unwrap();
-            docky.insert_bson(name.to_string(), value.clone());
+        let input_to_document = bson::to_bson(&input).unwrap().as_document().cloned();
+        let result_document = Mongo::query_struct(input_to_document);
+        let result_query = Mongo::resolve_query_one(result_document, collection);
+        bson::from_bson::<Person>(result_query).ok()
+    }
+    field person_id(id: String) -> Option<Person> {
+        let collection = Mongo::person_collection();
+        let object_id = ObjectId::with_string(&id);
+        if object_id.is_ok() {
+            let result_query = collection.find_one(Some(doc! { "_id": object_id.ok().unwrap() }), None).ok();
+            let normaliced = Mongo::normalice_to_doc(result_query);
+            return bson::from_bson::<Person>(normaliced).ok()
         }
 
-        let resultt = collection.find_one(Some(docky), None);
-
-        let trans = match resultt {
-            Ok(obj) => obj.or(Some( OrderedDocument::new() )),
-            Error => Some( OrderedDocument::new() ),
+        None
+    }
+    field persons(limit: i32, input: PersonQueryInput) -> Vec<Option<Person>> {
+        let collection = Mongo::person_collection();
+        let mut result_query: Vec<Option<Person>> = Vec::new();
+        let input_to_document = bson::to_bson(&input).unwrap().as_document().cloned();
+        let result_document = Mongo::query_struct(input_to_document);
+        let result_cursor = collection.find(Some(result_document),None);
+        let resolve_query = match result_cursor {
+            Ok(mut cursor) => cursor.next_n(limit as usize).ok(),
+            _error => None
+        };
+        if resolve_query.is_some() {
+            let resolve_vector = resolve_query.unwrap();
+            for item in resolve_vector.into_iter() {
+                result_query.push(
+                    bson::from_bson::<Person>(Bson::Document(item)).ok()
+                )
+            }
+        }
+        result_query
+    }
+    field persons_find(limit: i32, input: PersonAgeQueryRange) ->  Vec<Option<Person>> {
+        let collection = Mongo::person_collection();
+        let mut result_query: Vec<Option<Person>> = Vec::new();
+        let result_cursor = collection.find(Some(
+            doc! { "age": doc! { "$lte": input.lte, "$gte": input.gte } }
+        ), None);
+        
+         let resolve_query = match result_cursor {
+            Ok(mut cursor) => cursor.next_n(limit as usize).ok(),
+            _error => None
         };
 
-        let tranformation_OrDoc_to_Bson = Bson::Document(trans.unwrap());
-
-        let que = bson::from_bson::<Person>(tranformation_OrDoc_to_Bson);
-
-        que.ok()
+        if resolve_query.is_some() {
+            let resolve_vector = resolve_query.unwrap();
+            for item in resolve_vector.into_iter() {
+                result_query.push(
+                    bson::from_bson::<Person>(Bson::Document(item)).ok()
+                )
+            }
+        }
+        result_query
     }
 });
- 
- 
-#[derive(Serialize, Deserialize, Debug, Default, GraphQLInputObject)]
-pub struct PersonInputMut {
-    pub name: String,
-    pub age: i32,
-}
- 
-#[derive(Debug, Default)]
+
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Mutation;
 graphql_object!(Mutation: () |&self| {
-    field foo() -> String {
-        println!("{:#?}", self);
-        "Bar".to_string()
+    field person(input: PersonMutateInput) -> Option<PersonMutateResponse> {
+        let collection = Mongo::person_collection();
+        let input_to_document = bson::to_bson(&input).unwrap().as_document().cloned();
+        let u = collection.insert_one(input_to_document.unwrap(), None);
+        let ok_insert = u.unwrap();
+        if ok_insert.inserted_id.is_some() {
+            let id_str = Mongo::resolve_object_id(ok_insert.inserted_id);
+            return Some (
+                PersonMutateResponse {
+                    id: id_str.unwrap(),
+                    name: input.name,
+                    age: input.age,
+                }
+            );
+        }
+        None
     }
 });

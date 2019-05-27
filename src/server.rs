@@ -2,16 +2,10 @@ use std::env;
 use logger::Logger;
 use mount::Mount;
 use iron::prelude::*;
-use juniper::{
-    FromInputValue,
-    InputValue,
-    RootNode,
-};
 use juniper_iron::{
     GraphQLHandler,
     GraphiQLHandler,
 };
-
 use crate::schema::{
     Query,
     Mutation,
